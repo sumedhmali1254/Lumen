@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%">
+  <defs>
+    <!-- Radial gradient for the central glowing orb matching the application's primary blue theme -->
+    <radialGradient id="lumen-app-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E0F2FE" />
+      <stop offset="40%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#2F6FED" />
+    </radialGradient>
+    
+    <!-- Linear gradient for the radiating diagnostic light lines -->
+    <linearGradient id="ray-app-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+  </defs>
+
+  <!-- Outer rounded glass container matching the clinical SaaS shell -->
+  <rect width="64" height="64" rx="14" fill="#0B0F14" stroke="#2F6FED" stroke-width="2" />
+
+  <!-- Radiating diagnostic light rays (representing explainable AI backpropagation & scan vectors) -->
+  <g stroke="url(#ray-app-grad)" stroke-width="2.5" stroke-linecap="round" opacity="0.9">
+    <line x1="32" y1="10" x2="32" y2="16" />
+    <line x1="32" y1="48" x2="32" y2="54" />
+    <line x1="10" y1="32" x2="16" y2="32" />
+    <line x1="48" y1="32" x2="54" y2="32" />
+    <line x1="16.5" y1="16.5" x2="21" y2="21" />
+    <line x1="43" y1="43" x2="47.5" y2="47.5" />
+    <line x1="43" y1="16.5" x2="47.5" y2="21" />
+    <line x1="16.5" y1="43" x2="21" y2="47.5" />
+  </g>
+
+  <!-- Central luminous orb -->
+  <circle cx="32" cy="32" r="12" fill="url(#lumen-app-glow)" />
+  
+  <!-- Stylized 'L' cutout combined with a subtle medical pulse line -->
+  <path d="M27 23V39H37" fill="none" stroke="#0B0F14" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
