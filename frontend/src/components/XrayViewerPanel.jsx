@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Move, Edit3, Maximize2, Circle } from 'lucide-react';
 import HotspotAnnotation from './HotspotAnnotation';
 import HeatmapControls from './HeatmapControls';
-import { MOCK_XRAY_SVG, MOCK_HEATMAP_SVG } from '../data/mockData';
+import { MOCK_XRAY_SVG } from '../data/mockData';
 
 export default function XrayViewerPanel({ result, xrayImage, highlightedRegion }) {
   const [viewMode, setViewMode] = useState('heatmap');
@@ -14,8 +14,13 @@ export default function XrayViewerPanel({ result, xrayImage, highlightedRegion }
   const containerRef = useRef(null);
   const [containerSize, setContainerSize] = useState({ w: 512, h: 512 });
 
+  // Resolves image sources cleanly for both live API & mock fallbacks
   const imageSrc = xrayImage || MOCK_XRAY_SVG;
-  const heatmapSrc = result?.heatmap_base64 || MOCK_HEATMAP_SVG;
+  const heatmapSrc = result?.heatmap_base64
+    ? result.heatmap_base64.startsWith('data:')
+      ? result.heatmap_base64
+      : `data:image/png;base64,${result.heatmap_base64}`
+    : '';
 
   // Track container size
   useEffect(() => {
@@ -148,14 +153,14 @@ export default function XrayViewerPanel({ result, xrayImage, highlightedRegion }
           )}
 
           {/* Heatmap overlay (non-split mode) */}
-          {viewMode !== 'split' && (
+          {viewMode !== 'split' && heatmapSrc && (
             <motion.img
               initial={{ opacity: 0 }}
               animate={{ opacity: viewMode === 'heatmap' ? intensity : 0 }}
               transition={{ duration: 0.3 }}
               src={heatmapSrc}
               alt="Grad-CAM heatmap overlay"
-              className="absolute inset-0 w-full h-full object-cover mix-blend-screen"
+              className="absolute inset-0 w-full h-full object-cover mix-blend-screen pointer-events-none"
               draggable={false}
               style={{ opacity: viewMode === 'heatmap' ? intensity : 0 }}
             />
@@ -188,13 +193,15 @@ export default function XrayViewerPanel({ result, xrayImage, highlightedRegion }
                   className="w-full h-full object-cover"
                   draggable={false}
                 />
-                <img
-                  src={heatmapSrc}
-                  alt="Heatmap overlay"
-                  className="absolute inset-0 w-full h-full object-cover mix-blend-screen"
-                  style={{ opacity: intensity }}
-                  draggable={false}
-                />
+                {heatmapSrc && (
+                  <img
+                    src={heatmapSrc}
+                    alt="Heatmap overlay"
+                    className="absolute inset-0 w-full h-full object-cover mix-blend-screen pointer-events-none"
+                    style={{ opacity: intensity }}
+                    draggable={false}
+                  />
+                )}
               </div>
 
               {/* Split divider */}
