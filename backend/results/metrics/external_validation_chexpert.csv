@@ -1,0 +1,8 @@
+disease,n_scored,prevalence_%,auc_on_chexpert
+Atelectasis,234,34.19,0.7568
+Cardiomegaly,234,29.06,0.8016
+Effusion,234,28.63,0.7989
+Pneumonia,234,3.42,0.7129
+Pneumothorax,234,3.42,0.6847
+Consolidation,234,14.1,0.8354
+Edema,234,19.23,0.8217
