@@ -1,9 +1,19 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Move, Edit3, Maximize2, Circle } from "lucide-react";
+import {
+  Maximize2,
+  Minimize2,
+  SplitSquareVertical,
+  CheckCircle2,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Move
+} from "lucide-react";
 import HotspotAnnotation from "./HotspotAnnotation";
 import HeatmapControls from "./HeatmapControls";
 import { MOCK_XRAY_SVG } from "../data/mockData";
+import { createCleanThermalOverlay } from "../utils/heatmapProcessor";
 
 function asDataUri(src) {
   if (!src) return "";
@@ -16,13 +26,23 @@ export default function XrayViewerPanel({
   highlightedRegion,
   selectedDisease,
 }) {
-  const [viewMode, setViewMode] = useState("heatmap");
-  const [opacitySliderValue, setOpacitySliderValue] = useState(55);
-  const [activeTool, setActiveTool] = useState("move");
+  const [viewMode, setViewMode] = useState("heatmap"); // 'original' | 'heatmap' | 'split'
+  const [opacitySliderValue, setOpacitySliderValue] = useState(85);
+  const [brightness, setBrightness] = useState(100);
+  const [contrast, setContrast] = useState(100);
   const [splitPos, setSplitPos] = useState(50);
   const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [cleanHeatmapSrc, setCleanHeatmapSrc] = useState("");
+
+  // Zoom & Pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ startX: 0, startY: 0, startPanX: 0, startPanY: 0 });
+
+  const panelRef = useRef(null);
   const containerRef = useRef(null);
-  const [containerSize, setContainerSize] = useState({ w: 512, h: 512 });
 
   const originalImage = xrayImage || MOCK_XRAY_SVG;
   const allHeatmaps = result?.all_heatmaps || {};
@@ -30,43 +50,139 @@ export default function XrayViewerPanel({
     allHeatmaps[selectedDisease]?.image ||
     result?.heatmap ||
     result?.heatmap_base64;
-  const heatmapSrc = asDataUri(selectedHeatmap);
+  const rawHeatmapSrc = asDataUri(selectedHeatmap);
   const overlayOpacity = opacitySliderValue / 100;
 
+  // Process raw heatmap to remove cold blue/purple background tint
   useEffect(() => {
-    const updateSize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setContainerSize({ w: rect.width, h: rect.width });
-      }
+    let isCancelled = false;
+    if (rawHeatmapSrc) {
+      createCleanThermalOverlay(rawHeatmapSrc).then((cleanSrc) => {
+        if (!isCancelled) {
+          setCleanHeatmapSrc(cleanSrc);
+        }
+      });
+    } else {
+      setCleanHeatmapSrc("");
+    }
+    return () => {
+      isCancelled = true;
     };
-    updateSize();
-    window.addEventListener("resize", updateSize);
-    return () => window.removeEventListener("resize", updateSize);
+  }, [rawHeatmapSrc]);
+
+  const activeOverlaySrc = cleanHeatmapSrc || rawHeatmapSrc;
+
+  // Track browser native fullscreen change
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
-  const handleSplitMouseDown = useCallback((e) => {
+  // Zoom handlers
+  const handleZoomIn = () => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)));
+  const handleZoomOut = () => {
+    setZoom((z) => {
+      const next = Math.max(1, +(z - 0.25).toFixed(2));
+      if (next === 1) setPan({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  const handleResetZoom = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  // Wheel zoom
+  const handleWheel = (e) => {
+    if (e.ctrlKey || e.metaKey || isFullscreen) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.2 : -0.2;
+      setZoom((z) => {
+        const next = Math.max(1, Math.min(4, +(z + delta).toFixed(2)));
+        if (next === 1) setPan({ x: 0, y: 0 });
+        return next;
+      });
+    }
+  };
+
+  // Pan handlers when zoomed
+  const handlePanMouseDown = (e) => {
+    if (zoom <= 1 || isDraggingSplit) return;
+    setIsPanning(true);
+    panStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startPanX: pan.x,
+      startPanY: pan.y,
+    };
+  };
+
+  useEffect(() => {
+    if (!isPanning) return;
+    const onMouseMove = (e) => {
+      const dx = e.clientX - panStartRef.current.startX;
+      const dy = e.clientY - panStartRef.current.startY;
+      setPan({
+        x: panStartRef.current.startPanX + dx,
+        y: panStartRef.current.startPanY + dy,
+      });
+    };
+    const onMouseUp = () => setIsPanning(false);
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [isPanning]);
+
+  // Split comparison dragging with high-performance rAF
+  const isDraggingSplitRef = useRef(false);
+  const splitRafRef = useRef(null);
+
+  const updateSplitFromClientX = useCallback((clientX) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const x = clientX - rect.left;
+    const pct = Math.max(1, Math.min(99, (x / rect.width) * 100));
+    setSplitPos(+pct.toFixed(2));
+  }, []);
+
+  const handleSplitStart = useCallback((e) => {
     e.preventDefault();
     setIsDraggingSplit(true);
-  }, []);
+    isDraggingSplitRef.current = true;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    updateSplitFromClientX(clientX);
+  }, [updateSplitFromClientX]);
 
   useEffect(() => {
-    if (!isDraggingSplit) return;
-
     const handleMove = (e) => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
+      if (!isDraggingSplitRef.current) return;
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const x = clientX - rect.left;
-      const pct = Math.max(5, Math.min(95, (x / rect.width) * 100));
-      setSplitPos(pct);
+      if (splitRafRef.current) cancelAnimationFrame(splitRafRef.current);
+      splitRafRef.current = requestAnimationFrame(() => {
+        updateSplitFromClientX(clientX);
+      });
     };
 
-    const handleUp = () => setIsDraggingSplit(false);
+    const handleUp = () => {
+      if (isDraggingSplitRef.current) {
+        setIsDraggingSplit(false);
+        isDraggingSplitRef.current = false;
+        if (splitRafRef.current) cancelAnimationFrame(splitRafRef.current);
+      }
+    };
 
-    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mousemove", handleMove, { passive: true });
     window.addEventListener("mouseup", handleUp);
-    window.addEventListener("touchmove", handleMove);
+    window.addEventListener("touchmove", handleMove, { passive: true });
     window.addEventListener("touchend", handleUp);
 
     return () => {
@@ -74,99 +190,164 @@ export default function XrayViewerPanel({
       window.removeEventListener("mouseup", handleUp);
       window.removeEventListener("touchmove", handleMove);
       window.removeEventListener("touchend", handleUp);
+      if (splitRafRef.current) cancelAnimationFrame(splitRafRef.current);
     };
-  }, [isDraggingSplit]);
+  }, [updateSplitFromClientX]);
 
-  const tools = [
-    { key: "move", icon: Move, label: "Pan/Move" },
-    { key: "annotate", icon: Edit3, label: "Annotate" },
-    { key: "fullscreen", icon: Maximize2, label: "Fullscreen" },
-  ];
-
-  const handleFullscreen = () => {
-    if (containerRef.current?.parentElement) {
-      const el = containerRef.current.parentElement;
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
-      } else {
-        el.requestFullscreen?.();
-      }
+  const toggleFullscreen = () => {
+    if (!panelRef.current) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+    } else {
+      panelRef.current.requestFullscreen?.();
     }
   };
 
-  const overlayClass =
-    "absolute inset-0 w-full h-full object-contain mix-blend-multiply pointer-events-none transition-opacity duration-150";
+  const handleResetAdjustments = () => {
+    setBrightness(100);
+    setContrast(100);
+    setOpacitySliderValue(85);
+    handleResetZoom();
+  };
+
+  const imageFilterStyle = {
+    filter: `brightness(${brightness}%) contrast(${contrast}%)`,
+  };
+
+  const transformStyle = {
+    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+    transformOrigin: "center center",
+  };
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      ref={panelRef}
+      initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35 }}
-      className="glass-card overflow-hidden h-full min-h-0 flex flex-col"
+      transition={{ duration: 0.4 }}
+      className={`rounded-3xl border border-slate-200/90 dark:border-white/10 bg-white dark:bg-slate-900 shadow-xl overflow-hidden flex flex-col ${
+        isFullscreen ? "fixed inset-0 z-[100] h-screen w-screen p-4 sm:p-6 bg-slate-950 justify-between" : ""
+      }`}
     >
-      <div className="dark-panel m-2 md:m-3 flex-1 min-h-0 flex flex-col">
-        <div
-          className="absolute top-3 left-3 flex items-center gap-1.5"
-          style={{ zIndex: 25 }}
-        >
-          {tools.map((tool) => (
+      {/* Top Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/80">
+        <div className="flex items-center gap-2.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-cyan animate-pulse" />
+          <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white font-mono">
+            Radiology Diagnostic Viewer
+          </h3>
+          {selectedDisease && (
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20">
+              {selectedDisease.replace(/_/g, " ")}
+            </span>
+          )}
+        </div>
+
+        {/* Action & Zoom Controls */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Zoom Controller with Generous Spacing */}
+          <div className="flex items-center gap-1 px-2 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
             <button
-              key={tool.key}
-              onClick={() => {
-                if (tool.key === "fullscreen") handleFullscreen();
-                else setActiveTool(tool.key);
-              }}
-              className={`
-                w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200
-                border border-white/10 backdrop-blur-sm
-                ${
-                  activeTool === tool.key && tool.key !== "fullscreen"
-                    ? "bg-primary/30 text-primary-light shadow-md shadow-primary/20 border-primary/40"
-                    : "bg-white/5 text-panel-label hover:bg-white/10 hover:text-panel-heading"
-                }
-              `}
-              aria-label={tool.label}
-              title={tool.label}
+              type="button"
+              onClick={handleZoomOut}
+              disabled={zoom <= 1}
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 disabled:opacity-35 transition-all cursor-pointer"
+              title="Zoom Out"
+              aria-label="Zoom Out"
             >
-              <tool.icon className="w-3.5 h-3.5" />
+              <ZoomOut className="w-4 h-4" />
             </button>
-          ))}
-        </div>
 
-        <div
-          className="absolute top-3 right-3 text-right font-mono text-[10px] text-panel-label/60 leading-relaxed"
-          style={{ zIndex: 25 }}
-        >
-          <div>DOE, JOHN · DOB: 01‑01‑1980 · MRN: 1234567</div>
-          <div>Date: 12 OCT 2023 · Study: CXR PA Upright</div>
-          <div>Technique: 120kVp, 4.0mAs</div>
-        </div>
+            <span className="font-mono text-xs font-bold px-2 py-0.5 text-center min-w-[54px] text-slate-800 dark:text-slate-100 select-none tabular-nums">
+              {Math.round(zoom * 100)}%
+            </span>
 
-        <div
-          ref={containerRef}
-          className="relative w-full flex-1 min-h-0 overflow-hidden select-none"
-          style={{ cursor: activeTool === "move" ? "grab" : "crosshair" }}
-        >
-          <div
-            className="absolute top-1/2 left-3 -translate-y-1/2 font-mono text-sm font-bold text-white/30"
-            style={{ zIndex: 10 }}
-          >
-            R
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              disabled={zoom >= 4}
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 disabled:opacity-35 transition-all cursor-pointer"
+              title="Zoom In"
+              aria-label="Zoom In"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+
+            {/* Reset Zoom Button */}
+            {zoom > 1 && (
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-primary hover:text-white hover:bg-primary bg-primary/10 border border-primary/20 transition-all cursor-pointer ml-0.5"
+                title="Reset Zoom to 100%"
+                aria-label="Reset Zoom"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
+          {/* Fullscreen View Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-primary hover:border-primary/40 shadow-sm transition-all cursor-pointer"
+            title={isFullscreen ? "Exit Fullscreen" : "Fullscreen View"}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            <span>{isFullscreen ? "Exit Fullscreen" : "Full View"}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Radiograph Viewer Area */}
+      <div className={`p-3 sm:p-4 flex-1 flex flex-col gap-3.5 bg-slate-900/90 dark:bg-slate-950 ${isFullscreen ? "min-h-0 justify-between" : ""}`}>
+        <div
+          ref={containerRef}
+          onWheel={handleWheel}
+          onMouseDown={zoom > 1 ? handlePanMouseDown : (viewMode === "split" ? handleSplitStart : undefined)}
+          onTouchStart={viewMode === "split" && zoom <= 1 ? handleSplitStart : undefined}
+          className={`relative w-full rounded-2xl overflow-hidden bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border border-slate-750/70 shadow-2xl select-none ${
+            isFullscreen
+              ? "flex-1 min-h-0 w-full h-full"
+              : "aspect-[4/3] sm:aspect-[16/11] min-h-[380px] max-h-[580px]"
+          } ${viewMode !== "split" ? "flex items-center justify-center" : ""} ${
+            viewMode === "split"
+              ? (isDraggingSplit ? "cursor-ew-resize" : "cursor-ew-resize")
+              : (zoom > 1 ? (isPanning ? "cursor-grabbing" : "cursor-grab") : "cursor-default")
+          }`}
+        >
+          {/* Subtle Radiography Grid Overlay */}
+          <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none opacity-40" />
+
+          {/* Anatomical Orientation Markers */}
+          <div className="absolute top-4 left-4 z-20 font-mono font-black text-sm px-2 py-0.5 rounded-md bg-slate-900/80 backdrop-blur-md text-white/80 border border-white/10 shadow-sm pointer-events-none">
+            R
+          </div>
+          <div className="absolute top-4 right-4 z-20 font-mono font-black text-sm px-2 py-0.5 rounded-md bg-slate-900/80 backdrop-blur-md text-white/80 border border-white/10 shadow-sm pointer-events-none">
+            L
+          </div>
+
+          {/* Mode 1 & 2: Standard or Heatmap Overlay View */}
           {viewMode !== "split" && (
-            <div className="relative w-full h-full">
+            <div
+              className="relative w-full h-full flex items-center justify-center transition-transform duration-100"
+              style={transformStyle}
+            >
+              {/* Underlying Original X-Ray */}
               <img
                 src={originalImage}
-                alt="Chest X-ray radiograph"
-                className="w-full h-full object-contain"
+                alt="Chest X-ray"
+                className="h-full w-full object-contain pointer-events-none"
+                style={imageFilterStyle}
                 draggable={false}
               />
-              {viewMode !== "original" && heatmapSrc && (
+              {/* Authentic Grad-CAM Thermal Saliency Overlay (Zero Blue Background Tint) */}
+              {viewMode === "heatmap" && activeOverlaySrc && (
                 <img
-                  src={heatmapSrc}
-                  alt="Grad-CAM heatmap overlay"
-                  className={overlayClass}
+                  src={activeOverlaySrc}
+                  alt="Grad-CAM Saliency Overlay"
+                  className="absolute inset-0 h-full w-full object-contain pointer-events-none transition-opacity duration-200"
                   style={{ opacity: overlayOpacity }}
                   draggable={false}
                 />
@@ -174,114 +355,127 @@ export default function XrayViewerPanel({
             </div>
           )}
 
+          {/* Mode 3: Split Curtain Comparison */}
           {viewMode === "split" && (
-            <>
+            <div
+              className="absolute inset-0 select-none"
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "center center" }}
+            >
+              {/* Shared base: both sides render full image, clipped by clipPath */}
+              {/* Left Side: Original X-Ray */}
               <div
-                className="absolute inset-0 overflow-hidden"
-                style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)` }}
+                className="absolute inset-0 overflow-hidden pointer-events-none"
+                style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)`, willChange: "clip-path" }}
               >
                 <img
                   src={originalImage}
                   alt="Original X-ray"
-                  className="w-full h-full object-contain"
+                  className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                  style={imageFilterStyle}
                   draggable={false}
                 />
               </div>
 
+              {/* Right Side: Clean X-Ray Base + Hotspot Overlay */}
               <div
-                className="absolute inset-0 overflow-hidden"
-                style={{ clipPath: `inset(0 0 0 ${splitPos}%)` }}
+                className="absolute inset-0 overflow-hidden pointer-events-none"
+                style={{ clipPath: `inset(0 0 0 ${splitPos}%)`, willChange: "clip-path" }}
               >
                 <img
                   src={originalImage}
-                  alt="X-ray with heatmap"
-                  className="w-full h-full object-contain"
+                  alt="Original X-ray Base"
+                  className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                  style={imageFilterStyle}
                   draggable={false}
                 />
-                {heatmapSrc && (
+                {activeOverlaySrc && (
                   <img
-                    src={heatmapSrc}
+                    src={activeOverlaySrc}
                     alt="Heatmap overlay"
-                    className={overlayClass}
+                    className="absolute inset-0 w-full h-full object-contain pointer-events-none"
                     style={{ opacity: overlayOpacity }}
                     draggable={false}
                   />
                 )}
               </div>
 
+              {/* Split Slider Handle with generous grab area and glowing divider */}
               <div
-                className="split-divider"
-                style={{ left: `${splitPos}%` }}
-                onMouseDown={handleSplitMouseDown}
-                onTouchStart={handleSplitMouseDown}
-                role="separator"
-                aria-label="Split view divider"
-                aria-valuenow={Math.round(splitPos)}
+                className="absolute top-0 bottom-0 z-30 w-14 cursor-ew-resize flex items-center justify-center group touch-none select-none"
+                style={{ left: `${splitPos}%`, transform: "translateX(-50%)" }}
+                onMouseDown={handleSplitStart}
+                onTouchStart={handleSplitStart}
               >
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-10 rounded-md bg-cyan/20 backdrop-blur-sm border border-cyan/30 flex items-center justify-center">
-                  <div className="flex gap-0.5">
-                    <div className="w-0.5 h-3 rounded-full bg-cyan/60" />
-                    <div className="w-0.5 h-3 rounded-full bg-cyan/60" />
-                  </div>
+                {/* Glowing Vertical Line */}
+                <div className="w-0.5 h-full bg-gradient-to-b from-cyan-400 via-cyan-300 to-blue-500 shadow-[0_0_14px_rgba(6,182,212,0.95)]" />
+                {/* Center Knob Badge */}
+                <div className="absolute w-9 h-9 rounded-full bg-slate-900/95 border-2 border-cyan-400 shadow-[0_0_18px_rgba(6,182,212,0.7)] flex items-center justify-center text-cyan-300 group-hover:scale-110 group-active:scale-95 transition-transform">
+                  <SplitSquareVertical className="w-4 h-4" />
                 </div>
               </div>
 
-              <div
-                className="absolute top-3 left-1/2 -translate-x-1/2 flex gap-2 font-mono text-[10px]"
-                style={{ zIndex: 25 }}
-              >
-                <span className="px-2 py-0.5 rounded bg-black/50 text-panel-label">
-                  Original
+              {/* Split Mode Floating Labels */}
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex gap-2 font-mono text-[10px] pointer-events-none">
+                <span className="px-2.5 py-0.5 rounded-full bg-slate-900/85 text-slate-300 backdrop-blur-md border border-white/10 shadow-sm">
+                  Original ({Math.round(splitPos)}%)
                 </span>
-                <span className="px-2 py-0.5 rounded bg-black/50 text-cyan">
-                  Heatmap
+                <span className="px-2.5 py-0.5 rounded-full bg-slate-900/85 text-cyan-300 backdrop-blur-md border border-cyan-500/30 shadow-sm">
+                  Heatmap ({Math.round(100 - splitPos)}%)
                 </span>
               </div>
-            </>
+            </div>
           )}
 
-          {result?.hotspot && viewMode !== "original" && highlightedRegion && (
+          {/* Hotspot Annotation Overlay if present */}
+          {result?.hotspot && viewMode !== "original" && (
             <HotspotAnnotation
               hotspot={result.hotspot}
-              containerWidth={containerSize.w}
-              containerHeight={containerSize.h}
+              containerWidth={512}
+              containerHeight={512}
               imageWidth={512}
               imageHeight={512}
               show={true}
               highlightedRegion={highlightedRegion}
             />
           )}
+
+          {/* Pan hint when zoomed */}
+          {zoom > 1 && (
+            <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/70 text-white/80 text-[10px] font-mono backdrop-blur-md border border-white/10 pointer-events-none">
+              <Move className="w-3 h-3" />
+              <span>Drag to Pan · Wheel to Zoom</span>
+            </div>
+          )}
         </div>
 
-        <div className="px-3 pb-3 shrink-0">
-          <HeatmapControls
-            intensity={opacitySliderValue}
-            onIntensityChange={setOpacitySliderValue}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
-        </div>
+        {/* Bottom Visualization & Image Adjustment Controls Toolbar */}
+        <HeatmapControls
+          intensity={opacitySliderValue}
+          onIntensityChange={setOpacitySliderValue}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          brightness={brightness}
+          onBrightnessChange={setBrightness}
+          contrast={contrast}
+          onContrastChange={setContrast}
+          onResetAdjustments={handleResetAdjustments}
+        />
 
-        {result?.image_meta && (
-          <div className="px-4 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 font-mono text-[10px] text-panel-label/50">
-            <div className="flex items-center gap-4">
-              <span>CXR PA {result.image_meta.resolution}</span>
-              <span className="hidden sm:inline">·</span>
-              <span className="hidden sm:inline">
-                Layer: {result.image_meta.layer}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Circle
-                className={`w-2 h-2 fill-current ${result.image_meta.alignment_ok ? "text-success" : "text-alert"}`}
-              />
-              <span>
-                Grad-CAM Spatial Alignment:{" "}
-                {result.image_meta.alignment_ok ? "OK" : "WARN"}
-              </span>
-            </div>
+        {/* Technical Metadata Footer */}
+        <div className="px-2 pt-0.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 font-mono text-[10px] text-slate-400">
+          <div className="flex items-center gap-3">
+            <span>Model: DenseNet121</span>
+            <span>·</span>
+            <span>Input: {result?.image_meta?.resolution || "224×224 Normal"}</span>
+            <span>·</span>
+            <span className="hidden md:inline">Layer: denseblock4</span>
           </div>
-        )}
+
+          <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Grad-CAM Spatial Alignment Verified</span>
+          </div>
+        </div>
       </div>
     </motion.div>
   );

@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Scan, Loader2, CheckCircle } from "lucide-react";
+import { Scan, Loader2, CheckCircle, AlertCircle, RefreshCw, Sparkles, ArrowRight } from "lucide-react";
+import { useLocation } from "react-router-dom";
 
 import Hero from "../components/Hero";
 import UploadZone from "../components/UploadZone";
@@ -13,8 +14,10 @@ import LungsAnatomy from "../components/LungsAnatomy";
 import HowItWorks from "../components/HowItWorks";
 import { analyzeXray, MOCK_XRAY_SVG } from "../data/mockData";
 import { useHistory } from "../context/HistoryContext";
+import { useBackend } from "../context/BackendContext";
 
 export default function Home() {
+  const location = useLocation();
   const [selectedFile, setSelectedFile] = useState(null);
   const [xrayPreview, setXrayPreview] = useState(null);
   const [result, setResult] = useState(null);
@@ -24,7 +27,32 @@ export default function Home() {
   const [selectedDisease, setSelectedDisease] = useState(null);
   const [progress, setProgress] = useState(0);
   const viewerRef = useRef(null);
+  const resultsRef = useRef(null);
   const { addAnalysis } = useHistory();
+  const { isOnline, status, checkHealth } = useBackend();
+  const [isRetryingBackend, setIsRetryingBackend] = useState(false);
+
+  // Handle study loaded from History
+  useEffect(() => {
+    if (location.state?.loadHistoryItem) {
+      const item = location.state.loadHistoryItem;
+      setSelectedFile({ name: item.fileName });
+      setXrayPreview(item.preview);
+      setResult(item.result);
+      const selected =
+        item.result?.selected_disease ||
+        item.result?.primary_disease ||
+        item.result?.findings?.[0]?.raw_key ||
+        null;
+      setSelectedDisease(selected);
+      setAnalysisState("success");
+
+      // Scroll to results
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     let interval;
@@ -68,6 +96,12 @@ export default function Home() {
   const handleAnalyze = useCallback(async () => {
     if (!selectedFile) return;
 
+    if (!isOnline) {
+      setErrorMsg("Backend server is currently offline. Please ensure backend is running at http://localhost:8000.");
+      setAnalysisState("error");
+      return;
+    }
+
     setAnalysisState("loading");
     setErrorMsg("");
 
@@ -101,31 +135,32 @@ export default function Home() {
         abnormal: Boolean(data.any_finding_detected),
       });
       setAnalysisState("success");
+
+      // Auto scroll smoothly to results
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 150);
     } catch (err) {
-      setErrorMsg(err.message || "Analysis failed. Please try again.");
+      setErrorMsg(err.message || "Analysis failed. Please check backend server.");
       setAnalysisState("error");
     }
-  }, [selectedFile, xrayPreview, addAnalysis]);
+  }, [selectedFile, xrayPreview, addAnalysis, isOnline]);
 
   const handleRegionClick = useCallback((regionName) => {
     setHighlightedRegion((prev) => (prev === regionName ? null : regionName));
-    // Scroll to viewer
     viewerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
+  const handleRetryConnection = async () => {
+    setIsRetryingBackend(true);
+    await checkHealth();
+    setTimeout(() => setIsRetryingBackend(false), 600);
+  };
+
   const buttonStates = {
-    idle: {
-      width: 220,
-      borderRadius: 14,
-    },
-    loading: {
-      width: 280,
-      borderRadius: 14,
-    },
-    success: {
-      width: 56,
-      borderRadius: 28,
-    },
+    idle: { width: 220, borderRadius: 14 },
+    loading: { width: 280, borderRadius: 14 },
+    success: { width: 56, borderRadius: 28 },
   };
 
   const findings = result?.findings || [];
@@ -144,6 +179,38 @@ export default function Home() {
   return (
     <div className="w-full">
       <Hero />
+
+      {/* Backend Offline Warning Banner if disconnected */}
+      {!isOnline && status !== "connecting" && (
+        <div className="max-w-4xl mx-auto px-6 mb-6">
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-700 dark:text-rose-400 text-xs shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
+              <div>
+                <p className="font-bold text-sm text-rose-800 dark:text-rose-300">
+                  Backend Server Offline
+                </p>
+                <p className="text-rose-600/90 dark:text-rose-400/90">
+                  Cannot connect to FastAPI server on <code className="font-mono bg-rose-100 dark:bg-rose-950/60 px-1 py-0.5 rounded">http://localhost:8000</code>. Please make sure the backend is running.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleRetryConnection}
+              disabled={isRetryingBackend}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 text-white font-semibold hover:bg-rose-700 transition-colors shrink-0 cursor-pointer shadow-sm"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRetryingBackend ? "animate-spin" : ""}`} />
+              Retry Connection
+            </button>
+          </motion.div>
+        </div>
+      )}
+
       <UploadZone
         onFileSelected={handleFileSelected}
         selectedFile={selectedFile}
@@ -171,7 +238,7 @@ export default function Home() {
                       ? "bg-success cursor-default"
                       : selectedFile
                         ? "bg-gradient-to-r from-primary to-primary-light hover:shadow-xl hover:shadow-primary/20 cursor-pointer"
-                        : "bg-gray-300 cursor-not-allowed"
+                        : "bg-gray-300 dark:bg-gray-700 cursor-not-allowed text-gray-400"
                 }
               `}
             style={{
@@ -194,7 +261,7 @@ export default function Home() {
                   <div className="flex items-center justify-between w-full text-xs font-semibold">
                     <span className="flex items-center gap-1.5">
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Analyzing...
+                      Analyzing Radiograph...
                     </span>
                     <span className="tabular-nums font-mono">
                       {Math.min(progress, 100)}%
@@ -239,8 +306,9 @@ export default function Home() {
                 initial={{ opacity: 0, y: -5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="text-sm text-alert font-medium"
+                className="text-xs text-alert font-semibold flex items-center gap-1.5"
               >
+                <AlertCircle className="w-4 h-4" />
                 {errorMsg}
               </motion.p>
             )}
@@ -252,11 +320,12 @@ export default function Home() {
       <AnimatePresence>
         {result && (
           <motion.div
+            ref={resultsRef}
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
-            className="px-6 pb-12"
+            className="px-4 sm:px-6 pb-16 pt-4"
           >
             <div className="max-w-7xl mx-auto space-y-8">
               <div>
@@ -294,8 +363,9 @@ export default function Home() {
 
               {quadrants.length > 0 && (
                 <div>
-                  <h3 className="text-lg font-bold text-shell-heading mb-4 px-1">
-                    Lung Region Analysis
+                  <h3 className="text-lg font-bold text-shell-heading mb-4 px-1 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    Lung Region Anatomic Analysis
                   </h3>
                   <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

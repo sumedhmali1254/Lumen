@@ -1,158 +1,159 @@
 import { motion } from "framer-motion";
+import { Activity, Info } from "lucide-react";
 
 export default function LungsAnatomy({ result, highlightedRegion }) {
   if (!result || !result.regions) return null;
 
-  const regionPalette = {
-    "Top-Left": { fill: "#f87171", stroke: "#ef4444" },
-    "Top-Right": { fill: "#f59e0b", stroke: "#d97706" },
-    "Bottom-Left": { fill: "#14b8a6", stroke: "#0f766e" },
-    "Bottom-Right": { fill: "#60a5fa", stroke: "#2563eb" },
-  };
-
   const isAffected = (regionName) => {
     const region = result.regions.find((r) => r.name === regionName);
-    return region ? region.affected : false;
+    return Boolean(region?.affected || (region?.confidence && region.confidence >= 0.35));
+  };
+
+  const getRegionConfidence = (regionName) => {
+    const region = result.regions.find((r) => r.name === regionName);
+    return Math.round((Number(region?.confidence || 0)) * 100);
   };
 
   const getRegionColor = (regionName) => {
-    if (highlightedRegion === regionName)
-      return regionPalette[regionName]?.stroke || "#e2e8f0";
-    return isAffected(regionName)
-      ? "var(--color-alert)"
-      : "var(--color-success)";
+    if (highlightedRegion === regionName) return "#1E60E8";
+    if (isAffected(regionName)) return "#EF4444";
+    return "#10B981";
   };
 
-  const getRegionOpacity = (regionName) => {
-    if (highlightedRegion === regionName) return 0.9;
-    return isAffected(regionName) ? 0.6 : 0.25;
+  const getRegionFillOpacity = (regionName) => {
+    if (highlightedRegion === regionName) return 0.75;
+    if (isAffected(regionName)) return 0.55;
+    return 0.22;
   };
-
-  const getStrokeWidth = (regionName) =>
-    highlightedRegion === regionName ? 3 : 1;
 
   return (
-    <div className="flex flex-col items-center justify-center p-6 bg-white/5 rounded-2xl border border-white/10 glass-card">
-      <h3 className="text-sm font-bold text-shell-heading mb-4 uppercase tracking-wide">
-        Anatomical Mapping
-      </h3>
-      <div className="relative w-48 h-48 sm:w-56 sm:h-56">
-        <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-lg">
-          {/* Trachea */}
-          <path
-            d="M95 10 L105 10 L105 45 L95 45 Z"
-            fill="var(--color-shell-muted)"
-            opacity="0.3"
-          />
-          <path
-            d="M100 40 L85 60 L80 55 L95 35 Z"
-            fill="var(--color-shell-muted)"
-            opacity="0.3"
-          />
-          <path
-            d="M100 40 L115 60 L120 55 L105 35 Z"
-            fill="var(--color-shell-muted)"
-            opacity="0.3"
-          />
+    <div className="flex flex-col items-center justify-between p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 glass-card-sm h-full shadow-sm">
+      <div className="w-full flex items-center justify-between mb-3">
+        <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+          <Activity className="w-3.5 h-3.5 text-primary" />
+          Anatomical Mapping
+        </h4>
+        <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+          4-Zone Model
+        </span>
+      </div>
 
-          {/* Top-Left Lung (Viewer's Left, Patient's Right) */}
+      <div className="relative w-44 h-44 sm:w-48 sm:h-48 my-2 flex items-center justify-center">
+        <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-md">
+          {/* Trachea & Main Bronchi */}
+          <g opacity="0.45" className="text-slate-400 dark:text-slate-500">
+            {/* Trachea */}
+            <path
+              d="M96 12 C96 10 104 10 104 12 L104 46 L96 46 Z"
+              fill="currentColor"
+            />
+            {/* Cartilage rings */}
+            <line x1="95" y1="18" x2="105" y2="18" stroke="#ffffff" strokeWidth="1" opacity="0.6" />
+            <line x1="95" y1="26" x2="105" y2="26" stroke="#ffffff" strokeWidth="1" opacity="0.6" />
+            <line x1="95" y1="34" x2="105" y2="34" stroke="#ffffff" strokeWidth="1" opacity="0.6" />
+            <line x1="95" y1="42" x2="105" y2="42" stroke="#ffffff" strokeWidth="1" opacity="0.6" />
+
+            {/* Right Main Bronchus (Viewer's Left) */}
+            <path
+              d="M97 45 C92 50 82 60 78 66 L83 69 C87 64 96 52 100 48 Z"
+              fill="currentColor"
+            />
+            {/* Left Main Bronchus (Viewer's Right) */}
+            <path
+              d="M103 45 C108 50 118 60 122 66 L117 69 C113 64 104 52 100 48 Z"
+              fill="currentColor"
+            />
+          </g>
+
+          {/* Top-Left Lung (Viewer's Left = Patient's Right Upper Lobe) */}
           <motion.path
-            d="M85 55 C60 45 40 70 35 100 C45 100 65 100 85 100 C90 85 95 70 85 55 Z"
+            d="M84 55 C64 42 42 65 36 96 C48 97 66 97 84 97 C87 84 90 68 84 55 Z"
             fill={getRegionColor("Top-Left")}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: getRegionOpacity("Top-Left") }}
-            transition={{ duration: 1 }}
-            stroke={
-              highlightedRegion === "Top-Left"
-                ? regionPalette["Top-Left"].stroke
-                : "var(--color-shell-heading)"
-            }
-            strokeWidth={getStrokeWidth("Top-Left")}
-            className="transition-colors duration-500"
-          />
-          {/* Bottom-Left Lung */}
-          <motion.path
-            d="M35 100 C30 130 40 160 55 170 C75 165 85 155 85 100 C65 100 45 100 35 100 Z"
-            fill={getRegionColor("Bottom-Left")}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: getRegionOpacity("Bottom-Left") }}
-            transition={{ duration: 1, delay: 0.1 }}
-            stroke={
-              highlightedRegion === "Bottom-Left"
-                ? regionPalette["Bottom-Left"].stroke
-                : "var(--color-shell-heading)"
-            }
-            strokeWidth={getStrokeWidth("Bottom-Left")}
-            className="transition-colors duration-500"
+            fillOpacity={getRegionFillOpacity("Top-Left")}
+            stroke={getRegionColor("Top-Left")}
+            strokeWidth={highlightedRegion === "Top-Left" ? 2.5 : 1.5}
+            animate={{ scale: highlightedRegion === "Top-Left" ? 1.02 : 1 }}
+            transition={{ duration: 0.3 }}
+            className="cursor-pointer transition-colors duration-300"
           />
 
-          {/* Top-Right Lung (Viewer's Right, Patient's Left) */}
+          {/* Bottom-Left Lung (Viewer's Left = Patient's Right Lower Lobe) */}
           <motion.path
-            d="M115 55 C140 45 160 70 165 100 C155 100 135 100 115 100 C110 85 105 70 115 55 Z"
-            fill={getRegionColor("Top-Right")}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: getRegionOpacity("Top-Right") }}
-            transition={{ duration: 1, delay: 0.2 }}
-            stroke={
-              highlightedRegion === "Top-Right"
-                ? regionPalette["Top-Right"].stroke
-                : "var(--color-shell-heading)"
-            }
-            strokeWidth={getStrokeWidth("Top-Right")}
-            className="transition-colors duration-500"
+            d="M36 99 C32 128 42 162 58 172 C76 166 85 152 84 99 C66 99 48 99 36 99 Z"
+            fill={getRegionColor("Bottom-Left")}
+            fillOpacity={getRegionFillOpacity("Bottom-Left")}
+            stroke={getRegionColor("Bottom-Left")}
+            strokeWidth={highlightedRegion === "Bottom-Left" ? 2.5 : 1.5}
+            animate={{ scale: highlightedRegion === "Bottom-Left" ? 1.02 : 1 }}
+            transition={{ duration: 0.3 }}
+            className="cursor-pointer transition-colors duration-300"
           />
-          {/* Bottom-Right Lung */}
+
+          {/* Top-Right Lung (Viewer's Right = Patient's Left Upper Lobe) */}
           <motion.path
-            d="M165 100 C170 130 160 160 145 170 C125 165 115 155 115 100 C135 100 155 100 165 100 Z"
+            d="M116 55 C136 42 158 65 164 96 C152 97 134 97 116 97 C113 84 110 68 116 55 Z"
+            fill={getRegionColor("Top-Right")}
+            fillOpacity={getRegionFillOpacity("Top-Right")}
+            stroke={getRegionColor("Top-Right")}
+            strokeWidth={highlightedRegion === "Top-Right" ? 2.5 : 1.5}
+            animate={{ scale: highlightedRegion === "Top-Right" ? 1.02 : 1 }}
+            transition={{ duration: 0.3 }}
+            className="cursor-pointer transition-colors duration-300"
+          />
+
+          {/* Bottom-Right Lung with Cardiac Notch (Viewer's Right = Patient's Left Lower Lobe) */}
+          <motion.path
+            d="M164 99 C168 128 158 162 142 172 C124 166 117 148 116 99 C134 99 152 99 164 99 Z"
             fill={getRegionColor("Bottom-Right")}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: getRegionOpacity("Bottom-Right") }}
-            transition={{ duration: 1, delay: 0.3 }}
-            stroke={
-              highlightedRegion === "Bottom-Right"
-                ? regionPalette["Bottom-Right"].stroke
-                : "var(--color-shell-heading)"
-            }
-            strokeWidth={getStrokeWidth("Bottom-Right")}
-            className="transition-colors duration-500"
+            fillOpacity={getRegionFillOpacity("Bottom-Right")}
+            stroke={getRegionColor("Bottom-Right")}
+            strokeWidth={highlightedRegion === "Bottom-Right" ? 2.5 : 1.5}
+            animate={{ scale: highlightedRegion === "Bottom-Right" ? 1.02 : 1 }}
+            transition={{ duration: 0.3 }}
+            className="cursor-pointer transition-colors duration-300"
+          />
+
+          {/* Heart Silhouette Outline / Cardiac Notch indication */}
+          <path
+            d="M90 105 C90 92 110 92 115 110 C120 128 102 144 95 148 C90 144 82 128 90 105 Z"
+            fill="rgba(148, 163, 184, 0.08)"
+            stroke="rgba(148, 163, 184, 0.25)"
+            strokeWidth="1"
+            strokeDasharray="3 3"
           />
         </svg>
 
-        {/* Pulsing indicator for affected areas */}
+        {/* Pulsing Hotspot Waves for Affected Zones */}
         {result.regions.map((r) => {
-          if (!r.affected) return null;
-          let cx, cy;
-          if (r.name === "Top-Left") {
-            cx = "25%";
-            cy = "35%";
-          }
-          if (r.name === "Bottom-Left") {
-            cx = "25%";
-            cy = "75%";
-          }
-          if (r.name === "Top-Right") {
-            cx = "75%";
-            cy = "35%";
-          }
-          if (r.name === "Bottom-Right") {
-            cx = "75%";
-            cy = "75%";
-          }
+          if (!isAffected(r.name)) return null;
+          let left = "28%";
+          let top = "36%";
+          if (r.name === "Top-Left") { left = "28%"; top = "36%"; }
+          if (r.name === "Bottom-Left") { left = "28%"; top = "70%"; }
+          if (r.name === "Top-Right") { left = "72%"; top = "36%"; }
+          if (r.name === "Bottom-Right") { left = "72%"; top = "70%"; }
 
           return (
-            <motion.div
+            <div
               key={r.name}
-              className="absolute w-6 h-6 bg-alert/40 rounded-full blur-sm"
-              style={{ left: cx, top: cy, transform: "translate(-50%, -50%)" }}
-              animate={{ scale: [1, 1.5, 1], opacity: [0.4, 0.8, 0.4] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
+              className="absolute pointer-events-none"
+              style={{ left, top, transform: "translate(-50%, -50%)" }}
+            >
+              <span className="relative flex h-5 w-5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-5 w-5 bg-rose-500/80 shadow-md shadow-rose-500/50" />
+              </span>
+            </div>
           );
         })}
       </div>
-      <p className="text-xs text-shell-muted mt-2 text-center">
-        Patient orientation (Left side of image is Patient's Right Lung)
-      </p>
+
+      <div className="w-full pt-3 border-t border-slate-100 dark:border-slate-800 text-center">
+        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1">
+          <Info className="w-3.5 h-3.5 text-primary shrink-0" />
+          <span>Patient Orientation (Left is Patient's Right)</span>
+        </p>
+      </div>
     </div>
   );
 }

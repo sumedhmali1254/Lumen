@@ -14,25 +14,36 @@ function safeParseHistory(rawHistory) {
   }
 }
 
+// Ensure result has clean and safe data for storage
 function sanitizeResult(result) {
   if (!result || typeof result !== "object") return {};
 
-  const next = { ...result };
-  delete next.heatmap;
-  delete next.heatmaps;
-  delete next.regions_by_disease;
-  delete next.quadrants;
-  delete next.image;
-  delete next.original_image;
+  const clean = {
+    model_used: result.model_used || "",
+    any_finding_detected: Boolean(result.any_finding_detected),
+    verdict_text: result.verdict_text || "",
+    primary_disease: result.primary_disease || "",
+    selected_disease: result.selected_disease || "",
+    heatmap: result.heatmap || "",
+    quadrants: Array.isArray(result.quadrants) ? result.quadrants : (result.regions || []),
+    findings: Array.isArray(result.findings)
+      ? result.findings.map((f) => ({
+          disease: f.disease || f.name || "",
+          raw_key: f.raw_key || f.key || "",
+          name: f.name || f.disease || "",
+          probability: Number(f.probability ?? f.confidence ?? 0),
+          confidence: Number(f.confidence ?? f.probability ?? 0),
+          threshold: Number(f.threshold ?? 0.5),
+          detected: Boolean(f.detected ?? f.positive),
+          positive: Boolean(f.positive ?? f.detected),
+          risk_level: f.risk_level || (f.detected ? "High" : "Low"),
+          has_heatmap: Boolean(f.has_heatmap),
+        }))
+      : [],
+    image_meta: result.image_meta || {},
+  };
 
-  if (Array.isArray(next.findings)) {
-    next.findings = next.findings.map((finding) => ({
-      ...finding,
-      __summary: undefined,
-    }));
-  }
-
-  return next;
+  return clean;
 }
 
 export function HistoryProvider({ children }) {
@@ -41,39 +52,26 @@ export function HistoryProvider({ children }) {
     return safeParseHistory(window.localStorage.getItem(STORAGE_KEY));
   });
 
+  // Sync to localStorage whenever history changes
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const compactHistory = history.map((item) => ({
-      ...item,
-      result: sanitizeResult(item.result),
-    }));
-
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(compactHistory));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
     } catch {
-      const trimmedHistory = compactHistory.map((item) => ({
-        ...item,
-        result: {
-          model_used: item.result?.model_used || "",
-          any_finding_detected: item.result?.any_finding_detected ?? false,
-          verdict_text: item.result?.verdict_text || item.verdict || "",
-          selected_disease: item.result?.selected_disease || "",
-          primary_disease: item.result?.primary_disease || "",
-          findings: Array.isArray(item.result?.findings)
-            ? item.result.findings.slice(0, 8)
-            : [],
-          image_meta: item.result?.image_meta || {},
-        },
-      }));
-
+      // If localStorage is full, save a lighter version (strip heavy base64 heatmaps/previews)
       try {
-        window.localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify(trimmedHistory),
-        );
+        const lightweight = history.map((item) => ({
+          ...item,
+          preview: item.preview?.length > 100000 ? "" : item.preview,
+          result: {
+            ...item.result,
+            heatmap: "",
+          },
+        }));
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(lightweight));
       } catch {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+        console.warn("Storage quota exceeded, unable to persist history.");
       }
     }
   }, [history]);
@@ -86,7 +84,7 @@ export function HistoryProvider({ children }) {
       fileName: entry.fileName || "Chest X-ray",
       createdAt: entry.createdAt || new Date().toISOString(),
       preview: entry.preview || "",
-      result: entry.result || {},
+      result: sanitizeResult(entry.result || {}),
       verdict:
         entry.verdict || entry.result?.verdict_text || "Analysis complete",
       confidence:
@@ -109,16 +107,26 @@ export function HistoryProvider({ children }) {
 
     setHistory((previous) => {
       const filtered = previous.filter((item) => item.id !== normalized.id);
-      return [normalized, ...filtered].slice(0, 12);
+      return [normalized, ...filtered].slice(0, 20);
     });
+  };
+
+  const deleteAnalysis = (id) => {
+    if (!id) return;
+    setHistory((previous) => previous.filter((item) => item.id !== id));
   };
 
   const clearHistory = () => {
     setHistory([]);
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
   };
 
   const value = useMemo(
-    () => ({ history, addAnalysis, clearHistory }),
+    () => ({ history, addAnalysis, deleteAnalysis, clearHistory }),
     [history],
   );
 

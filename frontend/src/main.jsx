@@ -4,13 +4,16 @@ import { BrowserRouter } from "react-router-dom";
 import "./index.css";
 import App from "./App.jsx";
 import { HistoryProvider } from "./context/HistoryContext.jsx";
+import { BackendProvider } from "./context/BackendContext.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>
-      <HistoryProvider>
-        <App />
-      </HistoryProvider>
+      <BackendProvider>
+        <HistoryProvider>
+          <App />
+        </HistoryProvider>
+      </BackendProvider>
     </BrowserRouter>
   </StrictMode>,
 );
