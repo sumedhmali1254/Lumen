@@ -132,7 +132,7 @@ export default function UploadZone({ onFileSelected, selectedFile, onClear }) {
                   <div className="flex items-start gap-5">
                     {/* Thumbnail */}
                     <div className="relative shrink-0">
-                      <div className="w-28 h-28 rounded-xl overflow-hidden bg-gray-100 border border-black/[0.05]">
+                      <div className="w-28 h-28 rounded-xl overflow-hidden bg-gray-100 dark:bg-slate-800 border border-black/[0.05] dark:border-white/10">
                         {preview && (
                           <img
                             src={preview}
@@ -173,7 +173,7 @@ export default function UploadZone({ onFileSelected, selectedFile, onClear }) {
                     {/* Clear Button */}
                     <button
                       onClick={handleClear}
-                      className="p-2 rounded-lg hover:bg-black/[0.04] text-shell-muted hover:text-shell-heading transition-colors shrink-0"
+                      className="p-2 rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.06] text-shell-muted hover:text-shell-heading transition-colors shrink-0"
                       aria-label="Remove file"
                     >
                       <X className="w-4 h-4" />

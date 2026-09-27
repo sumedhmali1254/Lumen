@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { API_BASE_URL } from "../data/mockData";
 
 const BackendContext = createContext(null);
@@ -6,7 +6,6 @@ const BackendContext = createContext(null);
 export function BackendProvider({ children }) {
   const [status, setStatus] = useState("connecting"); // "connected" | "disconnected" | "connecting"
   const [healthInfo, setHealthInfo] = useState(null);
-  const [lastChecked, setLastChecked] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   const checkHealth = useCallback(async () => {
@@ -38,22 +37,19 @@ export function BackendProvider({ children }) {
       if (res && res.ok) {
         const data = await res.json();
         if (data.status === "ok") {
-          setHealthInfo(data);
+          setHealthInfo((prev) => (JSON.stringify(prev) === JSON.stringify(data) ? prev : data));
           setStatus("connected");
           setErrorMessage("");
-          setLastChecked(new Date());
           return true;
         }
       }
       setStatus("disconnected");
       setErrorMessage("Backend returned unhealthy status");
-      setLastChecked(new Date());
       return false;
     } catch (err) {
       setStatus("disconnected");
       setErrorMessage(err.message || "Failed to reach backend server");
       setHealthInfo(null);
-      setLastChecked(new Date());
       return false;
     }
   }, []);
@@ -61,8 +57,8 @@ export function BackendProvider({ children }) {
   useEffect(() => {
     checkHealth();
 
-    // Poll every 8 seconds
-    const interval = setInterval(checkHealth, 8000);
+    // Poll every 15 seconds
+    const interval = setInterval(checkHealth, 15000);
 
     const handleFocus = () => checkHealth();
     window.addEventListener("focus", handleFocus);
@@ -75,14 +71,16 @@ export function BackendProvider({ children }) {
     };
   }, [checkHealth]);
 
-  const value = {
-    status,
-    isOnline: status === "connected",
-    healthInfo,
-    lastChecked,
-    errorMessage,
-    checkHealth,
-  };
+  const value = useMemo(
+    () => ({
+      status,
+      isOnline: status === "connected",
+      healthInfo,
+      errorMessage,
+      checkHealth,
+    }),
+    [status, healthInfo, errorMessage, checkHealth]
+  );
 
   return (
     <BackendContext.Provider value={value}>

@@ -20,12 +20,14 @@ function normalizePredictionResponse(data) {
   const normalized = { ...data };
   const heatmaps = normalized.heatmaps || normalized.all_heatmaps || {};
   const regionsByDisease = normalized.regions_by_disease || {};
+  const hotspotsByDisease = normalized.hotspots_by_disease || {};
 
   const normalizedHeatmaps = {};
   Object.entries(heatmaps).forEach(([disease, image]) => {
     normalizedHeatmaps[disease] = {
       image,
       quadrants: regionsByDisease[disease] || [],
+      hotspot: hotspotsByDisease[disease] || null,
     };
   });
 

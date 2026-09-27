@@ -36,13 +36,71 @@ def apply_lung_mask(cam_map):
     return cam_map * mask
 
 
+def create_clean_rgba_overlay(cam_map):
+    """
+    Creates a clean, transparent RGBA thermal overlay.
+    Low/zero activation regions (< 0.12) are 100% transparent (no dark blue/purple tint).
+    Active areas use authentic JET colormap (Red -> Orange -> Yellow -> Green -> Cyan).
+    Returns RGB uint8 image array where background pixels are replaced with original or alpha.
+    """
+    cam_norm = np.clip(cam_map, 0, 1).astype(np.float32)
+    cam_norm[cam_norm < 0.12] = 0.0
+
+    cam_uint8 = np.uint8(255 * cam_norm)
+    color_bgr = cv2.applyColorMap(cam_uint8, cv2.COLORMAP_JET)
+    color_rgb = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
+
+    h, w = cam_norm.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    rgba[:, :, :3] = color_rgb
+
+    # Alpha: 0 for cold background, smooth transition 60..230 for heat zones
+    alpha = np.where(cam_norm > 0.12, np.clip(cam_norm * 255 * 0.85 + 50, 0, 230), 0)
+    rgba[:, :, 3] = alpha.astype(np.uint8)
+
+    # Convert to BGRA for OpenCV PNG encoding
+    bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+    return bgra
+
+
+def find_hotspot(cam_map):
+    """
+    Find the peak activation point in the CAM map and convert to 512x512 coordinate space.
+    """
+    h, w = cam_map.shape
+    y, x = np.unravel_index(np.argmax(cam_map), cam_map.shape)
+    
+    # Scale to 512x512 standard canvas coordinate space
+    x_512 = int(round(x * 512.0 / w))
+    y_512 = int(round(y * 512.0 / h))
+    
+    # Determine quadrant zone
+    zone = "Top-Left"
+    if x >= w // 2 and y < h // 2:
+        zone = "Top-Right"
+    elif x < w // 2 and y >= h // 2:
+        zone = "Bottom-Left"
+    elif x >= w // 2 and y >= h // 2:
+        zone = "Bottom-Right"
+
+    return {
+        "x": x_512,
+        "y": y_512,
+        "intensity": round(float(cam_map.max()), 4),
+        "zone": zone,
+        "description": f"Highest spatial saliency density in {zone} region (activation: {cam_map.max():.2f})."
+    }
+
+
 def gradcam_for(model, pil_img, disease):
     idx = cfg.LABELS.index(disease)
     cam = GradCAM(model=model, target_layers=[get_target_layer(model)])
     grayscale = cam(input_tensor=preprocess_pil(pil_img), targets=[ClassifierOutputTarget(idx)])[0]
     grayscale = apply_lung_mask(grayscale.astype(np.float32))
     overlay = show_cam_on_image(rgb_float(pil_img), grayscale, use_rgb=True)
-    return overlay, grayscale
+    clean_bgra = create_clean_rgba_overlay(grayscale)
+    hotspot = find_hotspot(grayscale)
+    return overlay, clean_bgra, grayscale, hotspot
 
 def cam_to_bbox(cam, percentile=90):
     thresh = np.percentile(cam, percentile)
@@ -70,5 +128,5 @@ if __name__ == "__main__":
     model = load_trained_model()
     probs = predict(model, img)
     for disease, prob in sorted(probs.items(), key=lambda x: -x[1])[:3]:
-        overlay, cam = gradcam_for(model, img, disease)
-        print(f"Disease: {disease} | Prob: {prob:.3f} | Quadrants: {quadrant_scores(cam)}")
+        overlay, clean_bgra, cam, hotspot = gradcam_for(model, img, disease)
+        print(f"Disease: {disease} | Prob: {prob:.3f} | Hotspot: {hotspot} | Quadrants: {quadrant_scores(cam)}")

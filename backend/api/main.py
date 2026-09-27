@@ -158,12 +158,15 @@ def load_models_on_startup():
 # IMAGE -> BASE64 PNG
 # ============================================================
 
-def to_base64_png(rgb_array):
-
-    bgr = cv2.cvtColor(
-        rgb_array,
-        cv2.COLOR_RGB2BGR,
-    )
+def to_base64_png(array):
+    if len(array.shape) == 3 and array.shape[2] == 4:
+        # Already BGRA or RGBA
+        bgr = array
+    else:
+        bgr = cv2.cvtColor(
+            array,
+            cv2.COLOR_RGB2BGR,
+        )
 
     _, buffer = cv2.imencode(
         ".png",
@@ -398,26 +401,36 @@ def predict_full(
     # --------------------------------------------------------
     # Generate heatmaps
     # --------------------------------------------------------
+    # Generate heatmaps
+    # --------------------------------------------------------
 
     heatmaps = {}
-
+    clean_heatmaps = {}
     regions_by_disease = {}
-
+    hotspots_by_disease = {}
 
     for disease in show:
 
-        overlay, cam = gradcam_for(
+        overlay, clean_bgra, cam, hotspot = gradcam_for(
             model,
             pil_img,
             disease,
         )
 
         heatmaps[disease] = (
-            to_base64_png(overlay)
+            to_base64_png(clean_bgra)
+        )
+
+        clean_heatmaps[disease] = (
+            to_base64_png(clean_bgra)
         )
 
         regions_by_disease[disease] = (
             quadrants_multi(cam)
+        )
+
+        hotspots_by_disease[disease] = (
+            hotspot
         )
 
 
@@ -562,7 +575,7 @@ def predict_full(
 
 
     # --------------------------------------------------------
-    # Primary heatmap
+    # Primary heatmap & hotspot
     # --------------------------------------------------------
 
     primary_heatmap = heatmaps.get(
@@ -574,6 +587,13 @@ def predict_full(
         regions_by_disease.get(
             top_disease,
             [],
+        )
+    )
+
+    primary_hotspot = (
+        hotspots_by_disease.get(
+            top_disease,
+            None,
         )
     )
 
@@ -613,12 +633,18 @@ def predict_full(
         "quadrants":
             primary_quadrants,
 
-        # All generated heatmaps
+        "hotspot":
+            primary_hotspot,
+
+        # All generated heatmaps & hotspots
         "heatmaps":
             heatmaps,
 
         "regions_by_disease":
             regions_by_disease,
+
+        "hotspots_by_disease":
+            hotspots_by_disease,
     }
 
 

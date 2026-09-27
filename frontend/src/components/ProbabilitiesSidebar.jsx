@@ -9,7 +9,7 @@ function statusFor(finding) {
   if (finding.risk_level === 'Moderate / Borderline') {
     return { label: 'Watch', tone: 'text-amber-500 bg-amber-500/10', bar: 'linear-gradient(90deg, #F5A623, #FCD34D)' };
   }
-  return { label: 'Not Detected', tone: 'text-slate-500 bg-slate-400/10', bar: 'linear-gradient(90deg, #94A3B8, #CBD5E1)' };
+  return { label: 'Not Detected', tone: 'text-slate-500 dark:text-slate-400 bg-slate-400/10 dark:bg-slate-700/40', bar: 'linear-gradient(90deg, #64748B, #94A3B8)' };
 }
 
 function isPositiveColor(finding) {

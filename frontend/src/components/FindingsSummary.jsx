@@ -6,15 +6,15 @@ function getFindingStyles(finding) {
 
   if (riskLevel === 'Moderate / Borderline') {
     return {
-      pill: 'bg-amber-50 text-amber-700 border border-amber-200',
+      pill: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60',
       dot: 'bg-amber-500',
     };
   }
 
   if (!isDetected) {
     return {
-      pill: 'bg-gray-100 text-shell-muted border border-gray-200/50',
-      dot: 'bg-gray-300',
+      pill: 'bg-gray-100 dark:bg-slate-800/80 text-shell-muted border border-gray-200/50 dark:border-slate-700/60',
+      dot: 'bg-gray-300 dark:bg-slate-600',
     };
   }
 

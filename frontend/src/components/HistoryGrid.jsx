@@ -284,8 +284,8 @@ export default function HistoryGrid({ showHeader = false }) {
           ) : (
             /* Cards Grid */
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              <AnimatePresence>
-                {filteredHistory.map((item, i) => {
+              <AnimatePresence mode="popLayout">
+                {filteredHistory.map((item) => {
                   const abnormal = Boolean(
                     item.abnormal ?? item.result?.any_finding_detected ?? false,
                   );
@@ -298,21 +298,21 @@ export default function HistoryGrid({ showHeader = false }) {
 
                   return (
                     <motion.div
-                      layout
                       key={item.id}
-                      initial={{ opacity: 0, scale: 0.96 }}
+                      initial={{ opacity: 0, scale: 0.98 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      transition={{ delay: i * 0.04, duration: 0.3 }}
+                      exit={{ opacity: 0, scale: 0.9, y: -8 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
                       whileHover={{ y: -4 }}
                       onClick={() => setSelectedItem(item)}
-                      className="glass-card-sm relative overflow-hidden group cursor-pointer hover:shadow-xl hover:border-primary/30 dark:hover:border-primary/40 transition-all duration-300 border border-slate-200/80 dark:border-white/10 flex flex-col justify-between"
+                      className="glass-card-sm relative overflow-hidden group cursor-pointer hover:shadow-xl hover:border-primary/30 dark:hover:border-primary/40 transition-all duration-200 border border-slate-200/80 dark:border-white/10 flex flex-col justify-between"
+                      style={{ transform: "translateZ(0)" }}
                     >
                       {/* Top Delete Button */}
                       <button
                         type="button"
                         onClick={(event) => handleDeleteItem(event, item.id)}
-                        className="absolute right-2.5 top-2.5 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/90 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/60 shadow-md transition-all duration-200"
+                        className="absolute right-2.5 top-2.5 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/90 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/60 shadow-md transition-all duration-200 cursor-pointer"
                         title={`Delete ${item.fileName || "study"}`}
                         aria-label={`Delete ${item.fileName || "analysis"}`}
                       >
@@ -325,6 +325,8 @@ export default function HistoryGrid({ showHeader = false }) {
                           <img
                             src={item.preview}
                             alt={item.fileName}
+                            loading="lazy"
+                            decoding="async"
                             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                           />
                         ) : (

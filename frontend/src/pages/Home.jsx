@@ -238,7 +238,7 @@ export default function Home() {
                       ? "bg-success cursor-default"
                       : selectedFile
                         ? "bg-gradient-to-r from-primary to-primary-light hover:shadow-xl hover:shadow-primary/20 cursor-pointer"
-                        : "bg-gray-300 dark:bg-gray-700 cursor-not-allowed text-gray-400"
+                        : "bg-gray-300 dark:bg-slate-800/80 cursor-not-allowed text-gray-400 dark:text-slate-500 border border-transparent dark:border-slate-700/50"
                 }
               `}
             style={{

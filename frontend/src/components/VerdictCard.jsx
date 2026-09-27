@@ -105,8 +105,8 @@ export default function VerdictCard({ result, selectedDisease, displayConfidence
       animate={{ opacity: 1, y: 0 }}
       className={`glass-card overflow-hidden ${
         hasFindings
-          ? 'bg-gradient-to-r from-alert/[0.06] via-white/90 to-caution/[0.04]'
-          : 'bg-gradient-to-r from-success/[0.06] via-white/90 to-cyan/[0.04]'
+          ? 'bg-gradient-to-r from-alert/[0.06] via-white/90 dark:via-slate-900/90 to-caution/[0.04]'
+          : 'bg-gradient-to-r from-success/[0.06] via-white/90 dark:via-slate-900/90 to-cyan/[0.04]'
       }`}
     >
       <div className="px-4 py-3 md:px-5 md:py-3.5 flex items-center gap-4">

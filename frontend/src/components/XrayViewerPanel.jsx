@@ -53,6 +53,11 @@ export default function XrayViewerPanel({
   const rawHeatmapSrc = asDataUri(selectedHeatmap);
   const overlayOpacity = opacitySliderValue / 100;
 
+  const activeHotspot =
+    allHeatmaps[selectedDisease]?.hotspot ||
+    result?.hotspots_by_disease?.[selectedDisease] ||
+    result?.hotspot;
+
   // Process raw heatmap to remove cold blue/purple background tint
   useEffect(() => {
     let isCancelled = false;
@@ -427,9 +432,9 @@ export default function XrayViewerPanel({
           )}
 
           {/* Hotspot Annotation Overlay if present */}
-          {result?.hotspot && viewMode !== "original" && (
+          {activeHotspot && viewMode !== "original" && (
             <HotspotAnnotation
-              hotspot={result.hotspot}
+              hotspot={activeHotspot}
               containerWidth={512}
               containerHeight={512}
               imageWidth={512}
