@@ -39,12 +39,15 @@ def apply_lung_mask(cam_map):
 def create_clean_rgba_overlay(cam_map):
     """
     Creates a clean, transparent RGBA thermal overlay.
-    Low/zero activation regions (< 0.12) are 100% transparent (no dark blue/purple tint).
+    Only regions with meaningful activation (>= 0.30) are shown —
+    everything below is fully transparent so the original X-ray shows through.
     Active areas use authentic JET colormap (Red -> Orange -> Yellow -> Green -> Cyan).
-    Returns RGB uint8 image array where background pixels are replaced with original or alpha.
     """
     cam_norm = np.clip(cam_map, 0, 1).astype(np.float32)
-    cam_norm[cam_norm < 0.12] = 0.0
+
+    # Hard cutoff: anything below 0.30 activation is invisible
+    THRESHOLD = 0.30
+    cam_norm[cam_norm < THRESHOLD] = 0.0
 
     cam_uint8 = np.uint8(255 * cam_norm)
     color_bgr = cv2.applyColorMap(cam_uint8, cv2.COLORMAP_JET)
@@ -54,8 +57,12 @@ def create_clean_rgba_overlay(cam_map):
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
     rgba[:, :, :3] = color_rgb
 
-    # Alpha: 0 for cold background, smooth transition 60..230 for heat zones
-    alpha = np.where(cam_norm > 0.12, np.clip(cam_norm * 255 * 0.85 + 50, 0, 230), 0)
+    # Alpha: 0 for sub-threshold, quadratic ramp for heat zones (steeper = tighter focus)
+    # Remap the 0.30..1.0 range into 0..1 for a smooth ramp
+    active_mask = cam_norm >= THRESHOLD
+    ramp = np.where(active_mask, (cam_norm - THRESHOLD) / (1.0 - THRESHOLD), 0.0)
+    # Quadratic ramp: low-mid activations fade quickly, only strong activations are opaque
+    alpha = np.where(active_mask, np.clip(ramp ** 1.5 * 220 + 30, 0, 240), 0)
     rgba[:, :, 3] = alpha.astype(np.uint8)
 
     # Convert to BGRA for OpenCV PNG encoding

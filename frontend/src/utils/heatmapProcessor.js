@@ -2,6 +2,7 @@
 // LUMEN — Seamless Thermal Hotspot Isolator
 // Preserves the authentic Grad-CAM thermal colors (Red -> Orange -> Yellow -> Green -> Cyan)
 // while making the cold blue/purple background and mask boundary completely transparent.
+// Only truly affected (hot) regions remain visible.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const processedCache = new Map();
@@ -10,12 +11,6 @@ export async function createCleanThermalOverlay(imageSrc) {
   if (!imageSrc) return "";
   if (processedCache.has(imageSrc)) {
     return processedCache.get(imageSrc);
-  }
-
-  // If the backend has provided a clean thermal RGBA data URI, use it directly
-  if (imageSrc.startsWith("data:image/png;base64,")) {
-    processedCache.set(imageSrc, imageSrc);
-    return imageSrc;
   }
 
   return new Promise((resolve) => {
@@ -38,34 +33,31 @@ export async function createCleanThermalOverlay(imageSrc) {
         const imgData = ctx.getImageData(0, 0, w, h);
         const data = imgData.data;
 
-        let isAlreadyTransparent = false;
-        for (let i = 3; i < data.length; i += 16) {
-          if (data[i] === 0) {
-            isAlreadyTransparent = true;
-            break;
-          }
-        }
-
-        if (isAlreadyTransparent) {
-          processedCache.set(imageSrc, imageSrc);
-          resolve(imageSrc);
-          return;
-        }
-
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i];
           const g = data[i + 1];
           const b = data[i + 2];
+          const a = data[i + 3];
 
-          const redWarmth = r - b - 12;
-          const greenWarmth = g - b - 15;
+          // Already transparent — skip
+          if (a === 0) continue;
+
+          // Measure how "warm" the pixel is:
+          // Warm thermal colors have R or G significantly above B
+          const redWarmth = r - b;
+          const greenWarmth = g - b;
           const warmthSignal = Math.max(redWarmth, greenWarmth);
 
-          if (warmthSignal <= 0) {
+          // Kill any pixel that is blue-dominant or has negligible warmth
+          // This removes all the blush/purple/blue wash
+          if (warmthSignal < 30) {
+            // Cold pixel — make fully transparent
             data[i + 3] = 0;
           } else {
-            const normalized = Math.min(1.0, warmthSignal / 48);
-            const alpha = Math.min(255, Math.round(Math.pow(normalized, 1.1) * 255));
+            // Scale alpha by warmth intensity — hotter = more opaque
+            const normalized = Math.min(1.0, (warmthSignal - 30) / 80);
+            // Steep power curve so only strong activations show
+            const alpha = Math.min(a, Math.round(Math.pow(normalized, 1.5) * 230));
             data[i + 3] = alpha;
           }
         }
